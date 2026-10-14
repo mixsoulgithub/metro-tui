@@ -75,7 +75,7 @@ options:
   --dump         渲染一帧到 stdout(真彩 ANSI)后退出,可配合 --size
   --size <WxH>   --dump 的画布大小(默认 200x50)
   --labels       一上来就把所有站名标出来(等于按 b)
-  --real         按真实经纬度画(默认是间距均匀的示意图,按 r 切换)
+  --schematic    按示意图画(默认是按真实经纬度的地理视图,按 r 切换)
   --at <站名>    开局把光标停在那一站
   --find <词>    开局就搜一遍(站名/拼音/首字母,或线路号)
   -h, --help     显示帮助
@@ -115,7 +115,7 @@ struct Args {
     size: Option<(u16, u16)>,
     labels: bool,
     /// 用真实经纬度画(默认是间距均匀的示意图)
-    real: bool,
+    schematic: bool,
     /// 开局把光标停在哪一站
     at: Option<String>,
     /// 开局就搜一遍(等于按 / 输入再回车)
@@ -130,7 +130,7 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         dump: false,
         size: None,
         labels: false,
-        real: false,
+        schematic: false,
         at: None,
         find: None,
         help: false,
@@ -148,7 +148,9 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             }
             "--dump" => args.dump = true,
             "--labels" => args.labels = true,
-            "--real" => args.real = true,
+            // 真实地理现在是默认;--real 仍然接受(保持老命令能用),想回示意图用 --schematic
+            "--real" => {}
+            "--schematic" => args.schematic = true,
             "--at" => {
                 i += 1;
                 args.at = Some(argv.get(i).ok_or("--at 缺少站名")?.clone());
@@ -571,7 +573,7 @@ fn main() -> ExitCode {
     // 每轮重建:换了城市,游标下标得对着新图
     view = View {
         labels: args.labels,
-        mode: if args.real { Mode::Real } else { Mode::Schematic },
+        mode: if args.schematic { Mode::Schematic } else { Mode::Real },
         ..View::default()
     };
     // 默认光标停在离画面中心最近的一站(按当前那套坐标算,别串了)

@@ -61,7 +61,7 @@ pub struct View {
 impl Default for View {
     fn default() -> Self {
         View {
-            mode: Mode::Schematic,
+            mode: Mode::Real,
             query: None,
             hits: Vec::new(),
             focus: Vec::new(),
