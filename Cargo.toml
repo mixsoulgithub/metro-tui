@@ -1,8 +1,8 @@
 [package]
-name = "metro"
+name = "metro-tui"
 version = "0.1.0"
 edition = "2021"
-description = "hangzhou metro map in the terminal: ascii, one true color per line"
+description = "terminal metro map: box-drawing characters, one true color per line, schematic and geographic views"
 
 [[bin]]
 name = "metro"
