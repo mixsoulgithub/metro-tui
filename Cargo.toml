@@ -1,0 +1,20 @@
+[package]
+name = "metro"
+version = "0.1.0"
+edition = "2021"
+description = "hangzhou metro map in the terminal: ascii, one true color per line"
+
+[[bin]]
+name = "metro"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = "0.30"
+crossterm = "0.29"
+unicode-width = "0.2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

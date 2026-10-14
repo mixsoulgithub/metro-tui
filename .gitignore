@@ -1,0 +1,4 @@
+/target
+/.cache
+tools/__pycache__
+/pypinyin-*.whl
