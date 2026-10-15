@@ -711,23 +711,44 @@ fn explain_dir(
     s
 }
 
-/// 平滑移动:把视图中心朝目标挪一段(每帧走掉剩余距离的 22%,指数逼近),
-/// 距目标不足半格就直接吸附过去.返回 true 表示还在动,主循环要接着按帧重画
+/// 平移:按**时长**缓动 —— 记下起点、终点、开始时刻,每帧按 `已过时间 / 时长` 求进度,
+/// 再乘一条缓动曲线(地图软件的标准做法).时长基本不随距离变,远的只多给一点并封顶.
+/// 曲线用 ease-in(t²):起步慢,看得清是往哪边挪;越接近终点越快,到了就干脆停住
 fn animate(view: &mut View, scene: &Scene, cell: f64) -> bool {
-    let Some(t) = view.target else {
+    let Some(to) = view.target else {
+        view.pan = None;
         return false;
     };
     let cur = view.center.unwrap_or_else(|| scene.center());
-    const K: f64 = 0.22;
-    let next = (cur.0 + (t.0 - cur.0) * K, cur.1 + (t.1 - cur.1) * K);
-    if (t.0 - next.0).abs() < cell * 0.5 && (t.1 - next.1).abs() < cell * 0.5 {
-        view.center = Some(t);
+    let (cw, ch) = (cell.max(1e-6), (cell * scene.aspect).max(1e-6));
+    let pan = match view.pan {
+        Some(p) if p.to == to => p, // 还是同一段,接着走
+        _ => {
+            // 新的一段:按时长决定走多久(0.2 秒起步,最多 0.42 秒)
+            let cells = ((to.0 - cur.0) / cw).abs().max(((to.1 - cur.1) / ch).abs());
+            let pan = ui::Pan {
+                from: cur,
+                to,
+                start: std::time::Instant::now(),
+                dur: (0.16 + cells * 0.002).clamp(0.2, 0.42),
+            };
+            view.pan = Some(pan);
+            pan
+        }
+    };
+    let t = (pan.start.elapsed().as_secs_f64() / pan.dur).clamp(0.0, 1.0);
+    let e = t * t;
+    view.center = Some((
+        pan.from.0 + (pan.to.0 - pan.from.0) * e,
+        pan.from.1 + (pan.to.1 - pan.from.1) * e,
+    ));
+    if t >= 1.0 {
+        view.center = Some(pan.to);
+        view.pan = None;
         view.target = None;
-        false
-    } else {
-        view.center = Some(next);
-        true
+        return false;
     }
+    true
 }
 
 /// 让视图平滑地挪到某一点(画布坐标):已经在动的就从当前显示的位置接着走
@@ -1257,30 +1278,63 @@ mod tests {
         assert!(z > 1.0, "该比整幅图更放大");
     }
 
-    /// 平滑移动:一帧挪一段(指数逼近),不是一步到位;方向不变,最后吸附到目标
+    /// 平移按时长缓动(地图软件的标准做法):记下起点/终点/开始时刻,每帧按 已过时间/时长 求进度.
+    /// 这里查:一定走到位、前半程走得少(缓入)、后半程走得多、不回头
     #[test]
-    fn 平滑移动是逐步逼近的() {
+    fn 平移按时长缓动走完() {
+        let m = Map::from_dot(include_str!("../docs/hangzhou-subway.dot")).unwrap();
+        let sc = Scene::schematic(&m);
+        let (x0, y0) = sc.center();
+        let goal = (x0 + 40.0, y0); // cell = 1.0,所以是 40 格
+        let run = |view: &mut View| {
+            let mut pts = Vec::new();
+            while animate(view, &sc, 1.0) {
+                pts.push(view.center.unwrap().0 - x0);
+                assert!(pts.len() < 200, "动画没个头");
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            pts
+        };
+        let mut view = View::default();
+        pan_to(&mut view, &sc, goal);
+        let t0 = std::time::Instant::now();
+        let pts = run(&mut view);
+        let secs = t0.elapsed().as_secs_f64();
+        println!(
+            "40 格(时长 0.2 秒)实际 {} 帧 / {secs:.2} 秒,进度 {:?}",
+            pts.len(),
+            &pts[..6.min(pts.len())]
+        );
+        assert_eq!(view.center, Some(goal), "最后要到位");
+        assert!(view.target.is_none() && view.pan.is_none(), "到位后要清干净");
+        assert!(secs < 0.8, "该在不到一秒内走完,实际 {secs:.2} 秒");
+        assert!(secs > 0.12, "太快了,缓动没起作用: {secs:.2} 秒");
+        let half = pts[pts.len() / 2];
+        let done = *pts.last().unwrap();
+        assert!(half < done * 0.45, "缓入:前半程该走不到一半,实际 {half:.1}/{done:.1}");
+        assert!(done - half > half * 1.2, "后半程该走得多,实际后半程 {:.1}", done - half);
+        assert!(pts.windows(2).all(|w| w[1] >= w[0] - 1e-9), "不该往回走: {pts:?}");
+    }
+
+    /// 很远的地方也不拖:时长有封顶(0.42 秒),不是距离越远耗越久
+    #[test]
+    fn 很远也是不到一秒走完() {
         let m = Map::from_dot(include_str!("../docs/hangzhou-subway.dot")).unwrap();
         let sc = Scene::schematic(&m);
         let mut view = View::default();
-        let goal = (1000.0, 500.0);
+        let goal = (sc.center().0 + 5000.0, sc.center().1); // 5000 格
         pan_to(&mut view, &sc, goal);
-        assert!(view.center.is_some(), "开始动之前得先有起点");
-        let mut dists = Vec::new();
-        let mut frames = 0;
+        let t0 = std::time::Instant::now();
+        let mut n = 0;
         while animate(&mut view, &sc, 1.0) {
-            let cur = view.center.unwrap();
-            dists.push((goal.0 - cur.0).hypot(goal.1 - cur.1));
-            frames += 1;
-            assert!(frames < 200, "动画没个头");
+            n += 1;
+            assert!(n < 300, "动画没个头");
+            std::thread::sleep(std::time::Duration::from_millis(5));
         }
-        println!("动了 {frames} 帧,距离序列前几项 {:?}", &dists[..5.min(dists.len())]);
-        assert!(frames > 5, "该是好幾帧的动画,不是一步到位(实际 {frames} 帧)");
-        assert!(dists.windows(2).all(|w| w[1] < w[0]), "离目标该越来越近");
-        assert_eq!(view.center, Some(goal), "最后要吸附到目标");
-        assert!(view.target.is_none(), "到位后目标要清掉");
-        // 停在原地之后 animate 该说"不动了"
-        assert!(!animate(&mut view, &sc, 1.0));
+        let secs = t0.elapsed().as_secs_f64();
+        println!("5000 格实际 {n} 帧 / {secs:.2} 秒");
+        assert_eq!(view.center, Some(goal), "最后要到位");
+        assert!(secs < 1.0, "5000 格也不该超过一秒,实际 {secs:.2} 秒");
     }
 
     /// 内嵌的每个城市都要能解析、能布局:数据坏了这里先红

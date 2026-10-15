@@ -21,6 +21,16 @@ pub enum Mode {
     Schematic,
 }
 
+/// 一段平移动画:按**时长**缓动(和地图软件一个路子),不是"每帧走固定格数"
+#[derive(Clone, Copy)]
+pub struct Pan {
+    pub from: (f64, f64),
+    pub to: (f64, f64),
+    pub start: std::time::Instant,
+    /// 走多少秒(远的多给一点,但有封顶)
+    pub dur: f64,
+}
+
 pub struct View {
     pub mode: Mode,
     /// 正在输入的搜索词(None = 不在搜索)
@@ -35,8 +45,10 @@ pub struct View {
     pub zoom: f64,
     /// 视图中心(画布坐标),None = 用整幅图的中心
     pub center: Option<(f64, f64)>,
-    /// 平滑移动的目标:每帧朝它挪一段,挪到不足半格就吸附过去并清空
+    /// 平移目标(见 main.rs 的 animate)
     pub target: Option<(f64, f64)>,
+    /// 正在进行的平移
+    pub pan: Option<Pan>,
     pub cursor: usize,
     /// 是否画出所有站名
     pub labels: bool,
@@ -69,6 +81,7 @@ impl Default for View {
             zoom: 1.0,
             center: None,
             target: None,
+            pan: None,
             cursor: 0,
             labels: false,
             pulse: 0.0,
@@ -298,21 +311,27 @@ impl Canvas {
         }
     }
 
-    /// 一格只能有一种颜色.谁说了算:光标所在站的那条线 > 先画的那条线.
-    /// 于是两条线挤在同一格时,颜色会跟着光标走 —— 从当前站就能顺着颜色找到自己那条线.
-    /// 占住的人同时决定了这一格画成什么形状:后来的那条线在这里断一格(上下穿过)
+    /// 一格只能有一种颜色,也只能有一种形状.
+    /// 颜色谁说了算:光标所在站的那条线 > 先画的那条线 —— 于是两条线挤在同一格时,
+    /// 颜色会跟着光标走,从当前站就能顺着颜色找到自己那条线.
+    /// 形状只按"先画的说了算",**不跟光标走**:不然挪一下光标,谁在这里断一格就翻到
+    /// 另一条线上,整段线的字形都跟着变,看着就是线在变形
     fn claim(&mut self, i: usize, line: usize, bit: u8, fg: (u8, u8, u8)) {
         let cur = self.owner[i];
         if cur == line as i16 {
             self.owner_mask[i] |= bit;
+            if self.priority[line] {
+                self.fg[i] = fg; // 这一格本来就是自己占的,颜色归自己
+            }
             return;
         }
-        let better = cur < 0 || (self.priority[line] && !self.priority[cur as usize]);
-        if better {
+        if cur < 0 {
             self.owner[i] = line as i16;
             self.owner_mask[i] = bit;
             self.fg[i] = fg;
             self.mine[i] = self.priority[line];
+        } else if self.priority[line] && !self.priority[cur as usize] {
+            self.fg[i] = fg; // 只让颜色,形状留给先画的那条线
         }
     }
 
@@ -825,6 +844,13 @@ pub fn layout(map: &Map, scene: &Scene, area: Rect, view: &View) -> Layout {
     };
     let scale = fit_scale(scene, map_area.width, map_area.height) / view.zoom.max(0.2);
     let (cx, cy) = view.center.unwrap_or_else(|| scene.center());
+    // 把中心对齐到字符格:一行的画布高度是 scale*aspect
+    // 相机的小数位置只让整幅图按整数格整体平移(鼠标拖动也是这个路子),
+    // 不然有的站先跳一格、有的站后跳,线在移动过程中一直变形
+    let (cx, cy) = (
+        (cx / scale).round() * scale,
+        (cy / (scale * scene.aspect)).round() * scale * scene.aspect,
+    );
     Layout {
         proj: Proj {
             scale,
@@ -1424,20 +1450,18 @@ mod tests {
         .expect("样例图")
     }
 
-    /// 非站点处的交叉:占住这一格的那条线照自己的形状画(画成一条直通的笔画),
-    /// 另一条断一格 —— 不能画成 ┼,不然看起来像这里有换乘
+    /// 非站点处的交叉:交叉格照"先画的那条线"自己的形状画(直通的那一笔),
+    /// 另一条在这里断一格 —— 不能画成 ┼,不然看起来像这里有换乘.
+    /// 这个形状**不跟光标走**:挪光标只换颜色,不然整段线的字形会跟着光标变,像在变形.
+    /// 颜色仍旧跟着光标那条线,从当前站顺着颜色就能找到自己那条线
     #[test]
-    fn 交叉处谁在上颜色就跟谁() {
+    fn 交叉格形状固定只换颜色() {
         let m = crossing();
         let sc = Scene::real(&m);
         let area = Rect::new(0, 0, 60, 24);
         let at = |n: &str| m.names.iter().position(|x| x == n).unwrap();
-        // 光标在 1 号线上:横线在上,交叉格是 "─" 且是红色
-        // 光标在 2 号线上:竖线在上,交叉格是 "│" 且是绿色
-        for (who, want_ch, want) in [
-            ("A1", "─", (255, 0, 0)),
-            ("B1", "│", (0, 255, 0)),
-        ] {
+        let mut shapes = Vec::new();
+        for (who, want) in [("A1", (255, 0, 0)), ("B1", (0, 255, 0))] {
             let mut view = View::default();
             view.cursor = at(who);
             let mut buf = Buffer::empty(area);
@@ -1445,13 +1469,16 @@ mod tests {
             let (x, _) = lay.proj.cell(sc.pos[at("B1")]);
             let (_, y) = lay.proj.cell(sc.pos[at("A1")]);
             let cell = &buf[(x as u16, y as u16)];
-            assert_eq!(cell.symbol(), want_ch, "光标在 {who} 时,该它那条线在上");
+            // 1 号线横着,而且先画,所以这一格始终是 "─"
+            assert_eq!(cell.symbol(), "─", "交叉格该是先画那条线的直笔画");
             assert_eq!(
                 cell.fg,
                 Color::Rgb(want.0, want.1, want.2),
                 "光标在 {who} 时,交叉点要用它那条线的颜色"
             );
+            shapes.push(cell.symbol().to_string());
         }
+        assert_eq!(shapes[0], shapes[1], "挪光标不该改交叉格的字形");
     }
 
     #[test]
@@ -2016,6 +2043,137 @@ mod real_map {
         println!("居中前 {c0:?},居中后 {c:?},画面中心 ({cx}, {cy})");
         assert!((c.0 - cx).abs() <= 1 && (c.1 - cy).abs() <= 1, "该落在正中");
         assert!(c != c0, "换了个位置才对");
+    }
+
+    /// 平移必须是"整幅图一起走整数格":中心挪不到一格时,所有站要么原地不动,
+    /// 要么一起挪同一个整数格.否则有的站先跳、有的站后跳,线在移动过程中一直变形
+    /// (看起来就是"抖"),鼠标拖动之所以平滑,就是因为它本来就是整格地挪
+    #[test]
+    fn 平移时整幅图是刚性移动的() {
+        let m = Map::from_dot(include_str!("../docs/hangzhou-subway.dot")).unwrap();
+        let sc = Scene::schematic(&m);
+        let area = Rect::new(0, 0, 120, 40);
+        let mut view = View::default();
+        view.zoom = 4.0; // 中等大小,跟随光标时差不多就是这个量级
+        let (cx, cy) = sc.center();
+        let step = layout(&m, &sc, area, &view).proj.scale; // 一列多少画布单位
+        view.center = Some((cx, cy));
+        let cells = |v: &View| {
+            let lay = layout(&m, &sc, area, v);
+            (0..sc.pos.len())
+                .map(|i| lay.proj.cell(sc.pos[i]))
+                .collect::<Vec<_>>()
+        };
+        let base = cells(&view);
+        for k in 1..10 {
+            let f = k as f64 / 10.0;
+            for (dx, dy) in [(step * f, 0.0), (0.0, step * sc.aspect * f)] {
+                view.center = Some((cx + dx, cy + dy));
+                let now = cells(&view);
+                let deltas: std::collections::BTreeSet<(i32, i32)> = base
+                    .iter()
+                    .zip(&now)
+                    .map(|(a, b)| (b.0 - a.0, b.1 - a.1))
+                    .collect();
+                println!("中心挪 ({dx:.2}, {dy:.2}) 时,各站的位移种类: {deltas:?}");
+                assert_eq!(
+                    deltas.len(),
+                    1,
+                    "挪不到一格时整幅图该一起走整数格,实际出现了 {} 种位移 {deltas:?}",
+                    deltas.len()
+                );
+            }
+        }
+    }
+
+    /// 相机停在同一格内,不管它的小数位置是多少,画出来必须一模一样:
+    /// 画面只在跨过整格时整体挪一格(和鼠标拖动是一回事),不会随着小数位置一点点变形.
+    /// 跟随光标移动时看着稳不稳,症结就在这里
+    #[test]
+    fn 相机在同一格内的小数位置画出来一样() {
+        let m = Map::from_dot(include_str!("../docs/hangzhou-subway.dot")).unwrap();
+        let sc = Scene::schematic(&m);
+        let area = Rect::new(0, 0, 150, 42);
+        let mut view = View::default();
+        view.zoom = 4.0; // 中等大小,跟随光标时差不多就是这个量级
+        let step = layout(&m, &sc, area, &view).proj.scale;
+        let row = step * sc.aspect;
+        let (cx0, cy0) = sc.center();
+        let snap = |v: &mut View| {
+            let mut b = Buffer::empty(area);
+            render(&mut b, area, &m, &sc, v);
+            (0..area.height)
+                .map(|y| {
+                    (0..area.width)
+                        .map(|x| b[(x, y)].symbol())
+                        .collect::<String>()
+                })
+                .collect::<Vec<_>>()
+        };
+        // 格点(和 layout 里那套对齐一致)
+        let (cx, cy) = ((cx0 / step).round() * step, (cy0 / row).round() * row);
+        view.center = Some((cx, cy));
+        let base = snap(&mut view);
+        for (fx, fy) in [(-0.45, 0.0), (-0.2, 0.31), (0.0, -0.49), (0.3, 0.2), (0.45, -0.45)] {
+            view.center = Some((cx + step * fx, cy + row * fy));
+            let got = snap(&mut view);
+            assert_eq!(
+                got, base,
+                "中心小数挪 ({fx}, {fy}) 格时画面变了,说明线在跟着小数位置变形"
+            );
+        }
+    }
+
+    /// 挪光标只该换颜色,不该换形状:把光标从一条线的站换到另一条线的站上,
+    /// 整幅图的字形必须一模一样(只有光标那一格的站点字形变).
+    /// 这条盯的就是"线跟着光标变形"—— 交叉格谁断一格曾经是跟着光标走的
+    #[test]
+    fn 挪光标不该改字形() {
+        let m = Map::from_dot(include_str!("../docs/hangzhou-subway.dot")).unwrap();
+        let sc = Scene::real(&m);
+        let area = Rect::new(0, 0, 120, 40);
+        let at = |n: &str| m.names.iter().position(|x| x == n).unwrap();
+        let snap = |cursor: usize| {
+            let mut view = View::default();
+            view.cursor = cursor;
+            let mut buf = Buffer::empty(area);
+            let lay = render(&mut buf, area, &m, &sc, &view);
+            let grid: Vec<Vec<String>> = (0..area.height)
+                .map(|y| (0..area.width).map(|x| buf[(x, y)].symbol().to_string()).collect())
+                .collect();
+            let (cx, cy) = lay.proj.cell(sc.pos[cursor]);
+            (grid, (cx as u16, cy as u16))
+        };
+        let (a, ca) = snap(at("新港"));
+        let (b, cb) = snap(at("杭州大会展中心"));
+        // 最后一行是状态栏(站名、线路、相邻站),本来就该跟着光标变,不参与比较
+        let diffs: Vec<(u16, u16, String, String)> = (0..area.height - 1)
+            .flat_map(|y| (0..area.width).map(move |x| (x, y)))
+            .filter(|&(x, y)| a[y as usize][x as usize] != b[y as usize][x as usize])
+            .map(|(x, y)| {
+                (
+                    x,
+                    y,
+                    a[y as usize][x as usize].clone(),
+                    b[y as usize][x as usize].clone(),
+                )
+            })
+            .collect();
+        for (x, y, old, new) in &diffs {
+            println!("({x:3},{y:2}) {old:?} -> {new:?}");
+        }
+        assert_eq!(
+            diffs.len(),
+            2,
+            "只有两处光标格该变,实际 {} 处: {diffs:?}",
+            diffs.len()
+        );
+        assert!(
+            diffs
+                .iter()
+                .all(|&(x, y, _, _)| (x, y) == ca || (x, y) == cb),
+            "字形变了的地方不只是光标那两格: {diffs:?}"
+        );
     }
 
     /// 聚焦一条线:这条线的点与笔画还是彩色的,别的全压暗
