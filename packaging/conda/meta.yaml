@@ -18,6 +18,8 @@ source:
 
 build:
   number: 0
+  # 这是别人编好的静态二进制,conda-build 的 path 重写会把它改坏(装完直接 SIGSEGV)
+  binary_relocation: false
   script:
     - mkdir -p "$PREFIX/bin"
     - install -m755 metro-tui "$PREFIX/bin/metro-tui"
