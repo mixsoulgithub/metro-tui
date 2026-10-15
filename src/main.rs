@@ -342,11 +342,20 @@ fn focus_lines_of(map: &Map, view: &mut View) {
     view.hit_at = 0;
 }
 
-/// 用户数据目录:$XDG_DATA_HOME/metro(默认 ~/.local/share/metro)
+/// 用户数据目录:$XDG_DATA_HOME/metro(默认 ~/.local/share/metro).
+/// Windows 上没有 HOME,退回 USERPROFILE/LOCALAPPDATA,目录名一样用 metro(和已有数据保持一致)
 fn user_data_dir() -> Option<std::path::PathBuf> {
     let base = std::env::var_os("XDG_DATA_HOME")
         .map(std::path::PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".local/share")))?;
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(|h| std::path::PathBuf::from(h).join(".local/share"))
+        })
+        .or_else(|| {
+            std::env::var_os("LOCALAPPDATA")
+                .map(std::path::PathBuf::from)
+                .or_else(|| std::env::var_os("USERPROFILE").map(std::path::PathBuf::from))
+        })?;
     Some(base.join("metro"))
 }
 
