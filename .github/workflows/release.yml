@@ -18,6 +18,8 @@ jobs:
     permissions:
       contents: write
     steps:
+      # 它要跑 git 生成 changelog,得先把仓库检出来
+      - uses: actions/checkout@v4
       - uses: taiki-e/create-gh-release-action@v1
 
   build:
