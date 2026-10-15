@@ -10,8 +10,19 @@ permissions:
   contents: write
 
 jobs:
+  # 先建好这个 tag 的 Release:upload-rust-binary-action 只会往已存在的 Release 上传,
+  # 不会自己建(之前手推 tag 时全是 release not found)
+  create-release:
+    name: create release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: taiki-e/create-gh-release-action@v1
+
   build:
     name: ${{ matrix.target }}
+    needs: create-release
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
