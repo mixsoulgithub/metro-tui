@@ -53,6 +53,9 @@ cargo build --release
 
 整幅图约 97 km x 51.5 km,200x50 左右正好用满。
 
+支持平台:Linux x86_64(动态 glibc 与静态 musl)、macOS arm64/x86_64、Windows x86_64
+(能编译、也随版本发布,但还没在 Windows 上实测过)。
+
 ## 命令行
 
 ```

@@ -57,6 +57,9 @@ cargo build --release
 
 A whole city is about 97 km x 51.5 km, so ~200x50 uses the screen well.
 
+Platforms: Linux x86_64 (dynamic glibc and static musl), macOS arm64/x86_64, and Windows
+x86_64 (it compiles and is released, but has not been tested on Windows).
+
 ## Options
 
 ```

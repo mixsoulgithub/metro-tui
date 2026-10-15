@@ -4,8 +4,8 @@
 #   anaconda upload -u <你的频道> <生成的 .conda/.tar.bz2>
 # 装:
 #   conda install -c <频道> metro-tui      (micromamba install -c <频道> metro-tui)
-{% set version = "0.1.0" %}
-{% set sha = "77d7640ac47f2a6bdc3cd18025a56275631428a0f45b385095d47e45733d8018" %}
+{% set version = "0.1.2" %}
+{% set sha = "9ae79b4afc269e6e447719141abd0dc189299067953a8f6f2c59f8bcbcbc3c19" %}
 
 package:
   name: metro-tui
