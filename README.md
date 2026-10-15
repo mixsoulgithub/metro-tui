@@ -26,8 +26,8 @@
 # Homebrew(Linux x86_64、macOS arm64/x86_64)
 brew install mixsoulgithub/tap/metro-tui
 
-# conda / micromamba(recipe 在 packaging/conda/meta.yaml,先自己构建并传到频道)
-conda install -c <你的频道> metro-tui
+# conda / micromamba(频道就是 GitHub Pages,不需要 anaconda.org 账号)
+conda install -c https://mixsoulgithub.github.io/conda-channel metro-tui
 
 # 预编译包(静态 musl,任何 x86_64 Linux)
 curl -L https://github.com/mixsoulgithub/metro-tui/releases/latest/download/metro-tui-x86_64-unknown-linux-musl.tar.gz | tar xz

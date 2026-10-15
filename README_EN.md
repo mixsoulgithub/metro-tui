@@ -30,8 +30,8 @@ schematic toggle.*
 # Homebrew (Linux x86_64, macOS arm64/x86_64)
 brew install mixsoulgithub/tap/metro-tui
 
-# conda / micromamba (recipe in packaging/conda/meta.yaml; build + upload to your own channel first)
-conda install -c <your-channel> metro-tui
+# conda / micromamba (channel is plain GitHub Pages, no anaconda.org account needed)
+conda install -c https://mixsoulgithub.github.io/conda-channel metro-tui
 
 # prebuilt tarball (static musl, any x86_64 Linux)
 curl -L https://github.com/mixsoulgithub/metro-tui/releases/latest/download/metro-tui-x86_64-unknown-linux-musl.tar.gz | tar xz
