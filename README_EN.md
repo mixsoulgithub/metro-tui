@@ -26,23 +26,19 @@ schematic toggle.*
 
 ## Install
 
-Prebuilt binaries (x86_64 Linux, glibc and static musl) are on the [releases page](https://github.com/mixsoulgithub/metro-tui/releases/latest):
-
 ```bash
+# Homebrew (Linux x86_64, macOS arm64/x86_64)
+brew install mixsoulgithub/tap/metro-tui
+
+# conda / micromamba (recipe in packaging/conda/meta.yaml; build + upload to your own channel first)
+conda install -c <your-channel> metro-tui
+
+# prebuilt tarball (static musl, any x86_64 Linux)
 curl -L https://github.com/mixsoulgithub/metro-tui/releases/latest/download/metro-tui-x86_64-unknown-linux-musl.tar.gz | tar xz
-install -m755 metro-tui ~/.local/bin/          # or anywhere on your PATH
-metro-tui --city hangzhou
-```
+install -m755 metro-tui ~/.local/bin/
 
-- **Homebrew** (Linux x86_64, static binary): `brew install mixsoulgithub/tap/metro-tui`
-- **conda / micromamba**: recipe in `packaging/conda/meta.yaml` — `conda build` it and publish to
-  your own channel, then `conda install -c <channel> metro-tui`
-
-From source (needs Rust), no crates.io account required:
-
-```bash
+# from source (needs Rust)
 cargo install --git https://github.com/mixsoulgithub/metro-tui
-cargo build --release                      # or clone and build
 ```
 
 ## Build & run

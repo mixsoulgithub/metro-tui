@@ -22,23 +22,19 @@
 
 ## 安装
 
-预编译二进制(x86_64 Linux,glibc 与静态 musl)在 [releases 页面](https://github.com/mixsoulgithub/metro-tui/releases/latest):
-
 ```bash
+# Homebrew(Linux x86_64、macOS arm64/x86_64)
+brew install mixsoulgithub/tap/metro-tui
+
+# conda / micromamba(recipe 在 packaging/conda/meta.yaml,先自己构建并传到频道)
+conda install -c <你的频道> metro-tui
+
+# 预编译包(静态 musl,任何 x86_64 Linux)
 curl -L https://github.com/mixsoulgithub/metro-tui/releases/latest/download/metro-tui-x86_64-unknown-linux-musl.tar.gz | tar xz
-install -m755 metro-tui ~/.local/bin/          # 或者放到 PATH 里任意位置
-metro-tui --city hangzhou
-```
+install -m755 metro-tui ~/.local/bin/
 
-- **Homebrew**(Linux x86_64,静态二进制):`brew install mixsoulgithub/tap/metro-tui`
-- **conda / micromamba**:recipe 在 `packaging/conda/meta.yaml`,自己 `conda build` 后传到个人频道,
-  再 `conda install -c <频道> metro-tui`
-
-从源码装(需要 Rust,不需要 crates.io 账号):
-
-```bash
+# 从源码(需要 Rust)
 cargo install --git https://github.com/mixsoulgithub/metro-tui
-cargo build --release                      # 或者 clone 下来自己编
 ```
 
 ## 构建与运行
