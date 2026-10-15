@@ -20,14 +20,35 @@
 - **无头渲染**:`--dump` 输出一帧真彩 ANSI。
 - **依赖极少**:只有 `ratatui`、`crossterm`、`unicode-width`,运行时不联网、不用数据库。
 
+## 安装
+
+预编译二进制(x86_64 Linux,glibc 与静态 musl)在 [releases 页面](https://github.com/mixsoulgithub/metro-tui/releases/latest):
+
+```bash
+curl -L https://github.com/mixsoulgithub/metro-tui/releases/latest/download/metro-tui-x86_64-unknown-linux-musl.tar.gz | tar xz
+install -m755 metro-tui ~/.local/bin/          # 或者放到 PATH 里任意位置
+metro-tui --city hangzhou
+```
+
+- **Homebrew**(Linux x86_64,静态二进制):`brew install mixsoulgithub/tap/metro-tui`
+- **conda / micromamba**:recipe 在 `packaging/conda/meta.yaml`,自己 `conda build` 后传到个人频道,
+  再 `conda install -c <频道> metro-tui`
+
+从源码装(需要 Rust,不需要 crates.io 账号):
+
+```bash
+cargo install --git https://github.com/mixsoulgithub/metro-tui
+cargo build --release                      # 或者 clone 下来自己编
+```
+
 ## 构建与运行
 
 需要 Rust(edition 2021)和支持真彩的 UTF-8 终端。
 
 ```bash
 cargo build --release
-./target/release/metro                # 先出选城市界面
-./target/release/metro --city chengdu # 直接进成都
+./target/release/metro-tui                # 先出选城市界面
+./target/release/metro-tui --city chengdu # 直接进成都
 ```
 
 整幅图约 97 km x 51.5 km,200x50 左右正好用满。

@@ -63,9 +63,9 @@ fn refresh(map: &Map, view: &mut View) {
 
 
 const USAGE: &str = "\
-metro - 终端里的地铁线路图(ASCII,一条线路一种颜色)
+metro-tui - 终端里的地铁线路图(箱线字符,一条线路一种真彩色)
 
-usage: metro [options]
+usage: metro-tui [options]
 
 不带参数时先出一个选城市的界面(杭州 / 上海 / 成都 / 深圳)。
 
@@ -414,7 +414,7 @@ fn open_row(list: &[Row], i: usize) -> Option<(String, String)> {
     match std::fs::read_to_string(path) {
         Ok(t) => Some((r.name.clone(), t)),
         Err(e) => {
-            eprintln!("metro: 读不到 {}: {e}", path.display());
+            eprintln!("metro-tui: 读不到 {}: {e}", path.display());
             None
         }
     }
@@ -529,7 +529,7 @@ fn main() -> ExitCode {
     let args = match parse_args(&argv) {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("metro: {e}\n\n{USAGE}");
+            eprintln!("metro-tui: {e}\n\n{USAGE}");
             return ExitCode::from(2);
         }
     };
@@ -543,7 +543,7 @@ fn main() -> ExitCode {
     let mut picked: Option<(String, String)> = match source_text(&args) {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("metro: {e}");
+            eprintln!("metro-tui: {e}");
             return ExitCode::from(1);
         }
     };
@@ -559,7 +559,7 @@ fn main() -> ExitCode {
     let map = match Map::from_dot(&text) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("metro: 线路图有问题: {e}");
+            eprintln!("metro-tui: 线路图有问题: {e}");
             return ExitCode::from(1);
         }
     };
@@ -587,7 +587,7 @@ fn main() -> ExitCode {
         Some(name) => match map.names.iter().position(|n| n == name) {
             Some(i) => i,
             None => {
-                eprintln!("metro: 没有叫 {name} 的站");
+                eprintln!("metro-tui: 没有叫 {name} 的站");
                 return ExitCode::from(1);
             }
         },
@@ -611,14 +611,14 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
-        eprintln!("metro: 需要真正的终端;只想要一帧可以用 --dump");
+        eprintln!("metro-tui: 需要真正的终端;只想要一帧可以用 --dump");
         return ExitCode::from(1);
     }
     match run(&mut view, &map, &real, &schematic) {
         Ok(Outcome::Quit) => return ExitCode::SUCCESS,
         Ok(Outcome::Back) => {}
         Err(e) => {
-            eprintln!("metro: {e}");
+            eprintln!("metro-tui: {e}");
             return ExitCode::from(1);
         }
     }
@@ -626,7 +626,7 @@ fn main() -> ExitCode {
     picked = match choose_city(last_name.as_deref()) {
         Ok(t) => t,
         Err(e) => {
-            eprintln!("metro: {e}");
+            eprintln!("metro-tui: {e}");
             return ExitCode::from(1);
         }
     };

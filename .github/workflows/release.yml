@@ -1,0 +1,41 @@
+name: release
+
+# 推 tag(如 v0.1.0)就为各平台构建二进制并挂到 Release 上.
+# 资产命名用 cargo-binstall / cargo-dist 认的约定: metro-tui-<target>.tar.gz (+ .sha256)
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl   # 静态链接,老发行版也能跑
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-latest
+            target: x86_64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: taiki-e/upload-rust-binary-action@v1
+        with:
+          bin: metro-tui
+          target: ${{ matrix.target }}
+          archive: metro-tui-$target
+          include: LICENSE,README.md,README_EN.md
+          checksum: sha256
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

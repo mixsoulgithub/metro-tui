@@ -1285,7 +1285,7 @@ fn chooser_rects(area: Rect, rows: &[(&str, &str)], _first: usize, count: usize)
         .collect()
 }
 
-pub const CHOOSER_TITLE: &str = "metro - 选一个城市";
+pub const CHOOSER_TITLE: &str = "metro-tui - 选一个城市";
 pub const CHOOSER_HINT: &str = "j k / 方向键 选择,回车打开,q 退出";
 
 /// 启动时的选城市界面:居中一列,选中的那行亮起来,底下是操作提示.

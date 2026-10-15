@@ -1,0 +1,42 @@
+# 个人 conda 频道用的 recipe:直接把 Release 里的静态二进制装进 $PREFIX/bin.
+# 构建与上传:
+#   conda build packaging/conda          (或 rattler-build build -r packaging/conda)
+#   anaconda upload -u <你的频道> <生成的 .conda/.tar.bz2>
+# 装:
+#   conda install -c <频道> metro-tui      (micromamba install -c <频道> metro-tui)
+{% set version = "0.1.0" %}
+{% set sha = "77d7640ac47f2a6bdc3cd18025a56275631428a0f45b385095d47e45733d8018" %}
+
+package:
+  name: metro-tui
+  version: {{ version }}
+
+source:
+  # musl 静态版:没有 glibc 依赖,任何 x86_64 Linux 都能跑
+  url: https://github.com/mixsoulgithub/metro-tui/releases/download/v{{ version }}/metro-tui-x86_64-unknown-linux-musl.tar.gz
+  sha256: {{ sha }}
+
+build:
+  number: 0
+  script:
+    - mkdir -p "$PREFIX/bin"
+    - install -m755 metro-tui "$PREFIX/bin/metro-tui"
+
+requirements:
+  # 静态链接,运行时不需要任何库
+  run: []
+
+test:
+  commands:
+    - metro-tui --help | grep -q "metro-tui"
+
+about:
+  home: https://github.com/mixsoulgithub/metro-tui
+  license: MIT
+  license_file: LICENSE
+  summary: Metro maps in the terminal (box-drawing characters, one true color per line)
+  description: |
+    Renders metro/subway maps in a terminal with box-drawing characters and one true colour per
+    line. Geographic projection by default, a relaxed schematic on demand; stop-order navigation,
+    pinyin search, mouse support, and a headless --dump mode.
+    Map data (c) OpenStreetMap contributors, ODbL.

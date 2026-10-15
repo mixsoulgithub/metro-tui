@@ -1,12 +1,10 @@
 [package]
 name = "metro-tui"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "terminal metro map: box-drawing characters, one true color per line, schematic and geographic views"
 
-[[bin]]
-name = "metro"
-path = "src/main.rs"
+exclude = ["/data", "/assets", "/local", "/tools", "/.github", "*.cast"]
 
 [dependencies]
 ratatui = "0.30"

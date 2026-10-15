@@ -24,14 +24,35 @@ schematic toggle.*
 - **Headless**: `--dump` prints one true-colour ANSI frame.
 - **Tiny**: only `ratatui`, `crossterm`, `unicode-width`. No network or database at runtime.
 
+## Install
+
+Prebuilt binaries (x86_64 Linux, glibc and static musl) are on the [releases page](https://github.com/mixsoulgithub/metro-tui/releases/latest):
+
+```bash
+curl -L https://github.com/mixsoulgithub/metro-tui/releases/latest/download/metro-tui-x86_64-unknown-linux-musl.tar.gz | tar xz
+install -m755 metro-tui ~/.local/bin/          # or anywhere on your PATH
+metro-tui --city hangzhou
+```
+
+- **Homebrew** (Linux x86_64, static binary): `brew install mixsoulgithub/tap/metro-tui`
+- **conda / micromamba**: recipe in `packaging/conda/meta.yaml` — `conda build` it and publish to
+  your own channel, then `conda install -c <channel> metro-tui`
+
+From source (needs Rust), no crates.io account required:
+
+```bash
+cargo install --git https://github.com/mixsoulgithub/metro-tui
+cargo build --release                      # or clone and build
+```
+
 ## Build & run
 
 Rust (edition 2021) and a UTF-8 terminal with true colour.
 
 ```bash
 cargo build --release
-./target/release/metro                # city chooser
-./target/release/metro --city chengdu # straight into a city
+./target/release/metro-tui                # city chooser
+./target/release/metro-tui --city chengdu # straight into a city
 ```
 
 A whole city is about 97 km x 51.5 km, so ~200x50 uses the screen well.
