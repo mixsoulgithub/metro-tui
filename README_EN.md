@@ -68,6 +68,9 @@ x86_64 (it compiles and is released, but has not been tested on Windows).
 --real         geographic layout (the default; kept for old commands)
 --at <name>    cursor on that station at startup
 --find <text>  search at startup (station / pinyin / initials / line)
+-v, --version  print the version
+--lang <zh|en> language of the app's own text (default zh; help and errors stay English)
+-h, --help     show help
 ```
 
 ## Keys

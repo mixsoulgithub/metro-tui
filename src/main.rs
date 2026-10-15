@@ -3,11 +3,13 @@
 // 解析在 dot.rs,模型在 map.rs,绘制在 ui.rs.
 mod city;
 mod dot;
+mod lang;
 mod layout;
 mod map;
 mod search;
 mod ui;
 
+use lang::Lang;
 use std::env;
 use std::io::{self, Write};
 use std::process::ExitCode;
@@ -63,48 +65,56 @@ fn refresh(map: &Map, view: &mut View) {
 
 
 const USAGE: &str = "\
-metro-tui - 终端里的地铁线路图(箱线字符,一条线路一种真彩色)
+metro-tui - metro maps in the terminal (box-drawing characters, one true colour per line)
 
 usage: metro-tui [options]
 
-不带参数时先出一个选城市的界面(杭州 / 上海 / 成都 / 深圳)。
+With no arguments it opens a city picker first (hangzhou / shanghai / chengdu / shenzhen).
 
 options:
-  --city <slug>  直接看某个城市:hangzhou / shanghai / chengdu / shenzhen
-  --file <path>  读取线路图 .dot(比 --city 优先)
-  --dump         渲染一帧到 stdout(真彩 ANSI)后退出,可配合 --size
-  --size <WxH>   --dump 的画布大小(默认 200x50)
-  --labels       一上来就把所有站名标出来(等于按 b)
-  --schematic    按示意图画(默认是按真实经纬度的地理视图,按 r 切换)
-  --at <站名>    开局把光标停在那一站
-  --find <词>    开局就搜一遍(站名/拼音/首字母,或线路号)
-  -h, --help     显示帮助
+  --city <slug>  open one city directly: hangzhou / shanghai / chengdu / shenzhen
+  --file <path>  read a map .dot file (takes precedence over --city)
+  --dump         render one frame to stdout (true-colour ANSI) and exit; use with --size
+  --size <WxH>   canvas size for --dump (default 200x50)
+  --labels       start with every station name drawn (same as pressing b)
+  --schematic    draw the relaxed schematic instead of the default geographic view (r toggles)
+  --at <name>    start with the cursor on that station
+  --find <text>  run a search at startup (station name / pinyin / initials / line number)
+  --lang <zh|en> language of the app's own text (default: zh). The help and error
+                 messages on this page stay English either way
+  -v, --version  print the version and exit
+  -h, --help     show this help and exit
 
 keys:
-  h j k l / 方向键  朝那个方向挑屏幕上最近的一站(眼睛看到哪个近就哪个,
-                    换终端尺寸/切视图都可能不一样);聚焦某条线时这条线上的站优先
-  H K / J L        沿线走一站:**H K 是上一站,J L 是下一站** —— 只看线路自己的站序,
-                    和真实方位、屏幕方向都无关(换乘站上按 H 就是这条线的上一站)
-                    站上有好几条线都能走时弹列表,数字或 j k 选、回车走、esc 取消
-  + -              放大 / 缩小
-  0                复位成整幅图
-  空格             把光标那一站挪到画面正中
-                   (聚焦某条线时,方向键优先走那条线)
-  5l / 3j           数字前缀:一次性挪好几站
-  Ctrl-d / Ctrl-u   半屏往下 / 往上跳一站(远距离旅行)
-  Ctrl-o / Ctrl-i   回到上一个 / 下一个跳过的站(Tab 就是 Ctrl-i)
-  f                 把聚焦的线路(没聚焦就是当前站那条)整条铺满画面
-  z                 和空格一样,把当前站挪到画面正中
-  ?                 键位速查(任意键关掉)
-  b                开关站名标注
-  /                搜站名或拼音(首字母也行);输入纯数字则聚焦那条线
-  n / N            下一个 / 上一个命中的站
-  V                聚焦当前站所在的线路(换乘站会一次聚焦几条),再按一次取消;
-                   效果和搜这条线的线路号一样,之后按 n 能一站站看过去
-  r                在示意图与真实地理之间切换
-  鼠标左键          单击即可:地图区里点哪儿就跳到离点击点最近的那一站
-                    (tmux 里要 set -g mouse on 才能收到鼠标事件)
-  q / esc          退出
+  h j k l / arrows  move to the nearest station on screen in that direction (whichever looks
+                    closest; can change with terminal size or view mode). With a line focused,
+                    stations on that line are preferred
+  H K / J L         step one station along the highlighted line: H K is the previous station,
+                    J L the next one - this only follows the line's own station order and
+                    ignores both real-world and screen direction (on an interchange, H means
+                    this line's previous station). When several lines can be followed, a list
+                    pops up: pick with digits or j k, Enter to go, Esc to cancel
+  + -               zoom in / out
+  0                 reset to the whole map
+  space             centre the map on the current station (with a line focused, the arrow keys
+                    prefer that line)
+  5l / 3j           numeric prefix: move several stations at once
+  Ctrl-d / Ctrl-u   jump one station half a screen down / up (for long trips)
+  Ctrl-o / Ctrl-i   back to the previous / next station you jumped to (Tab is Ctrl-i)
+  f                 fit the focused line (or the current station's line) to the screen
+  z                 same as space: centre the current station
+  ?                 key reference (any key closes it)
+  b                 toggle station name labels
+  /                 search station names or pinyin (initials work too); a bare number focuses
+                    that line
+  n / N             next / previous search hit
+  V                 focus the line(s) through the current station (an interchange focuses
+                    several at once); press again to clear. Same as searching a line number,
+                    and n then walks its stations
+  r                 switch between schematic and geographic view
+  mouse left        click to jump to the station nearest the click inside the map area
+                    (in tmux you need `set -g mouse on` to receive mouse events)
+  q / esc           quit
 ";
 
 struct Args {
@@ -121,6 +131,10 @@ struct Args {
     /// 开局就搜一遍(等于按 / 输入再回车)
     find: Option<String>,
     help: bool,
+    /// 打印版本后退出
+    version: bool,
+    /// 界面语言(默认中文)
+    lang: Lang,
 }
 
 fn parse_args(argv: &[String]) -> Result<Args, String> {
@@ -133,6 +147,8 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         schematic: false,
         at: None,
         find: None,
+        version: false,
+        lang: Lang::default(),
         help: false,
     };
     let mut i = 0;
@@ -140,11 +156,11 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
         match argv[i].as_str() {
             "--file" => {
                 i += 1;
-                args.file = Some(argv.get(i).ok_or("--file 缺少路径")?.clone());
+                args.file = Some(argv.get(i).ok_or("--file needs a path")?.clone());
             }
             "--city" => {
                 i += 1;
-                args.city = Some(argv.get(i).ok_or("--city 缺少城市名")?.clone());
+                args.city = Some(argv.get(i).ok_or("--city needs a city slug")?.clone());
             }
             "--dump" => args.dump = true,
             "--labels" => args.labels = true,
@@ -153,23 +169,29 @@ fn parse_args(argv: &[String]) -> Result<Args, String> {
             "--schematic" => args.schematic = true,
             "--at" => {
                 i += 1;
-                args.at = Some(argv.get(i).ok_or("--at 缺少站名")?.clone());
+                args.at = Some(argv.get(i).ok_or("--at needs a station name")?.clone());
             }
             "--find" => {
                 i += 1;
-                args.find = Some(argv.get(i).ok_or("--find 缺少内容")?.clone());
+                args.find = Some(argv.get(i).ok_or("--find needs a search term")?.clone());
             }
             "--size" => {
                 i += 1;
-                let raw = argv.get(i).ok_or("--size 缺少尺寸")?;
-                let (w, h) = raw.split_once(['x', 'X']).ok_or("--size 形如 200x50")?;
+                let raw = argv.get(i).ok_or("--size needs a size")?;
+                let (w, h) = raw.split_once(['x', 'X']).ok_or("--size looks like 200x50")?;
                 args.size = Some((
-                    w.parse().map_err(|_| "宽度不是数字")?,
-                    h.parse().map_err(|_| "高度不是数字")?,
+                    w.parse().map_err(|_| "width is not a number")?,
+                    h.parse().map_err(|_| "height is not a number")?,
                 ));
             }
             "-h" | "--help" => args.help = true,
-            other => return Err(format!("未知参数 {other}")),
+            "-v" | "--version" => args.version = true,
+            "--lang" => {
+                i += 1;
+                let v = argv.get(i).ok_or("--lang needs zh or en")?;
+                args.lang = Lang::parse(v).ok_or_else(|| format!("unknown language: {v} (use zh or en)"))?;
+            }
+            other => return Err(format!("unknown argument: {other}")),
         }
         i += 1;
     }
@@ -388,7 +410,7 @@ fn source_text(args: &Args) -> Result<Option<(String, String)>, String> {
     if let Some(path) = &args.file {
         return std::fs::read_to_string(path)
             .map(|t| Some((String::from("--file"), t)))
-            .map_err(|e| format!("读不到 {path}: {e}"));
+            .map_err(|e| format!("cannot read {path}: {e}"));
     }
     if let Some(slug) = &args.city {
         // 内嵌的没有就去 docs 里找(工具刚建出来的城市不用重新编译)
@@ -398,7 +420,7 @@ fn source_text(args: &Args) -> Result<Option<(String, String)>, String> {
     if !interactive {
         return Ok(Some((String::from("--dump"), city::CITIES[0].dot.to_string())));
     }
-    match choose_city(None) {
+    match choose_city(None, args.lang) {
         Ok(Some((name, dot))) => Ok(Some((name, dot))),
         Ok(None) => Ok(None),
         Err(e) => Err(e.to_string()),
@@ -423,7 +445,7 @@ fn open_row(list: &[Row], i: usize) -> Option<(String, String)> {
     match std::fs::read_to_string(path) {
         Ok(t) => Some((r.name.clone(), t)),
         Err(e) => {
-            eprintln!("metro-tui: 读不到 {}: {e}", path.display());
+            eprintln!("metro-tui: cannot read {}: {e}", path.display());
             None
         }
     }
@@ -431,13 +453,19 @@ fn open_row(list: &[Row], i: usize) -> Option<(String, String)> {
 
 /// 启动界面:选城市(None 表示用户按 q 退出).
 /// 除了内嵌的那几座,还列出 docs 目录里现成的 dot(工具刚建好的城市)
-fn choose_city(preset: Option<&str>) -> io::Result<Option<(String, String)>> {
+fn choose_city(preset: Option<&str>, lang: Lang) -> io::Result<Option<(String, String)>> {
     let mut list: Vec<Row> = city::CITIES
         .iter()
         .map(|c| {
             let desc = match Map::from_dot(c.dot) {
-                Ok(m) => format!("{} 条线,{} 站", m.lines.len(), m.names.len()),
-                Err(e) => format!("读不了:{e}"),
+                Ok(m) => match lang {
+                    Lang::Zh => format!("{} 条线,{} 站", m.lines.len(), m.names.len()),
+                    Lang::En => format!("{} lines, {} stations", m.lines.len(), m.names.len()),
+                },
+                Err(e) => match lang {
+                    Lang::Zh => format!("读不了:{e}"),
+                    Lang::En => format!("cannot read: {e}"),
+                },
             };
             Row {
                 name: c.name.to_string(),
@@ -454,7 +482,10 @@ fn choose_city(preset: Option<&str>) -> io::Result<Option<(String, String)>> {
             }
             list.push(Row {
                 name: name.clone(),
-                desc: format!("{lines} 条线,{stations} 站  ({slug})"),
+                desc: match lang {
+                    Lang::Zh => format!("{lines} 条线,{stations} 站  ({slug})"),
+                    Lang::En => format!("{lines} lines, {stations} stations  ({slug})"),
+                },
                 dot: None,
                 path: Some(path),
             });
@@ -485,7 +516,7 @@ fn choose_city(preset: Option<&str>) -> io::Result<Option<(String, String)>> {
         term.draw(|f| {
             let area = f.area();
             let refs: Vec<(&str, &str)> = rows.iter().map(|(n, d)| (n.as_str(), d.as_str())).collect();
-            ui::render_chooser(f.buffer_mut(), area, &refs, sel);
+            ui::render_chooser(f.buffer_mut(), area, &refs, sel, lang);
         })?;
         if !event::poll(Duration::from_millis(200))? {
             continue;
@@ -497,7 +528,7 @@ fn choose_city(preset: Option<&str>) -> io::Result<Option<(String, String)>> {
                 let refs: Vec<(&str, &str)> =
                     rows.iter().map(|(n, d)| (n.as_str(), d.as_str())).collect();
                 if let Some(i) =
-                    ui::chooser_row_at(term.size()?.into(), &refs, sel, me.column, me.row)
+                    ui::chooser_row_at(term.size()?.into(), &refs, sel, me.column, me.row, lang)
                 {
                     if i == sel {
                         break open_row(&list, i);
@@ -546,6 +577,10 @@ fn main() -> ExitCode {
         print!("{USAGE}");
         return ExitCode::SUCCESS;
     }
+    if args.version {
+        println!("metro-tui {}", env!("CARGO_PKG_VERSION"));
+        return ExitCode::SUCCESS;
+    }
     // 第一轮看哪座城市:--city/--file 直接用,否则弹选城市界面;之后都在选城市界面里挑
     // 看图界面按 q 回到选城市时,让界面停在刚才那座城市
     let mut last_name: Option<String>;
@@ -568,7 +603,7 @@ fn main() -> ExitCode {
     let map = match Map::from_dot(&text) {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("metro-tui: 线路图有问题: {e}");
+            eprintln!("metro-tui: bad map file: {e}");
             return ExitCode::from(1);
         }
     };
@@ -583,6 +618,7 @@ fn main() -> ExitCode {
     view = View {
         labels: args.labels,
         mode: if args.schematic { Mode::Schematic } else { Mode::Real },
+        lang: args.lang,
         ..View::default()
     };
     // 默认光标停在离画面中心最近的一站(按当前那套坐标算,别串了)
@@ -596,7 +632,7 @@ fn main() -> ExitCode {
         Some(name) => match map.names.iter().position(|n| n == name) {
             Some(i) => i,
             None => {
-                eprintln!("metro-tui: 没有叫 {name} 的站");
+                eprintln!("metro-tui: no station named {name}");
                 return ExitCode::from(1);
             }
         },
@@ -620,7 +656,7 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     if !io::stdin().is_terminal() || !io::stdout().is_terminal() {
-        eprintln!("metro-tui: 需要真正的终端;只想要一帧可以用 --dump");
+        eprintln!("metro-tui: needs a real terminal; use --dump for a single frame");
         return ExitCode::from(1);
     }
     match run(&mut view, &map, &real, &schematic) {
@@ -632,7 +668,7 @@ fn main() -> ExitCode {
         }
     }
     // q 回选城市界面;在那里再按 q 才整个退出
-    picked = match choose_city(last_name.as_deref()) {
+    picked = match choose_city(last_name.as_deref(), args.lang) {
         Ok(t) => t,
         Err(e) => {
             eprintln!("metro-tui: {e}");
@@ -651,34 +687,85 @@ fn cmd_apply(view: &mut View, line: &str) {
     match (cmd, arg) {
         ("cycle", Some(a)) if a == "auto" => {
             view.cycle = None;
-            view.note = Some(String::from("cycle = auto(没聚焦 1.0,聚焦 2.0)"));
+            view.note = Some(view.lang.pick(
+                "cycle = auto(没聚焦 1.0,聚焦 2.0)",
+                "cycle = auto (1.0 unfocused, 2.0 focused)",
+            ).to_string());
         }
         ("cycle", Some(a)) => match a.parse::<f64>() {
             Ok(v) => {
                 view.cycle = Some(v.clamp(0.0, 50.0));
-                view.note =
-                    Some(format!("cycle = {:.2}(同线那一档最多允许远这么多倍)", v.clamp(0.0, 50.0)));
+                let v = v.clamp(0.0, 50.0);
+                view.note = Some(view.lang.pick_owned(
+                    format!("cycle = {v:.2}(同线那一档最多允许远这么多倍)"),
+                    format!("cycle = {v:.2} (same-line tier may be this much farther)"),
+                ));
             }
-            Err(_) => view.note = Some(format!("cycle: {a} 不是数字(或 auto)")),
+            Err(_) => {
+                view.note = Some(view.lang.pick_owned(
+                    format!("cycle: {a} 不是数字(或 auto)"),
+                    format!("cycle: {a} is not a number (or auto)"),
+                ))
+            }
         },
         ("cycle", None) => {
             view.note = Some(match view.cycle {
                 Some(v) => format!("cycle = {v:.2}"),
-                None => String::from("cycle = auto(没聚焦 0,聚焦 2)"),
+                None => view.lang.pick(
+                    "cycle = auto(没聚焦 0,聚焦 2)",
+                    "cycle = auto (0 unfocused, 2 focused)",
+                ).to_string(),
             });
         }
         ("side", Some(a)) => match a.parse::<f64>() {
             Ok(v) => {
                 view.side = v.clamp(0.0, 20.0);
-                view.note = Some(format!("side = {:.2}(横向偏斜算几倍距离,调小更认远近)", view.side));
+                let side = view.side;
+                view.note = Some(view.lang.pick_owned(
+                    format!("side = {side:.2}(横向偏斜算几倍距离,调小更认远近)"),
+                    format!("side = {side:.2} (weight of sideways offset; lower = plain nearest)"),
+                ));
             }
-            Err(_) => view.note = Some(format!("side: {a} 不是数字")),
+            Err(_) => {
+                view.note = Some(view.lang.pick_owned(
+                    format!("side: {a} 不是数字"),
+                    format!("side: {a} is not a number"),
+                ))
+            }
         },
         ("side", None) => {
             view.note = Some(format!("side = {:.2}", view.side));
         }
+        // 界面语言:带参数就切到那种语言,不带参数在两种之间切
+        ("lang", arg) => {
+            let want = match arg {
+                Some(a) => Lang::parse(a),
+                None => Some(view.lang.other()),
+            };
+            match want {
+                Some(l) => {
+                    view.lang = l;
+                    let code = l.code();
+                    view.note = Some(l.pick_owned(
+                        format!("语言 = {code}(zh 中文,en English)"),
+                        format!("language = {code} (zh / en)"),
+                    ));
+                }
+                None => {
+                    view.note = Some(view.lang.pick(
+                        "lang 只认 zh 或 en",
+                        "lang takes zh or en",
+                    ).to_string())
+                }
+            }
+        }
         ("", None) => view.note = None,
-        _ => view.note = Some(format!("未知命令:{line}(有 cycle <倍数> 和 side <倍数>)")),
+        _ => {
+            view.note = Some(view.lang.pick_owned(
+                format!("未知命令:{line}(有 cycle <倍数>、side <倍数>、lang <zh|en>)"),
+                format!("unknown command: {line} (try cycle <x>, side <x>, lang <zh|en>)"),
+            ))
+        }
     }
 }
 
@@ -690,6 +777,7 @@ fn explain_dir(
     cands: &[(usize, f64, bool)],
     cycle: f64,
     side: f64,
+    lang: Lang,
 ) -> String {
     let key = match dir {
         (0, -1) => "k",
@@ -697,15 +785,28 @@ fn explain_dir(
         (-1, 0) => "h",
         _ => "l",
     };
-    let mut s = format!(
-        "{key}(cycle {cycle:.2} side {side:.2}) 选中 {};",
-        map.names[picked]
+    let mut s = lang.pick_owned(
+        format!(
+            "{key}(cycle {cycle:.2} side {side:.2}) 选中 {};",
+            map.names[picked]
+        ),
+        format!(
+            "{key}(cycle {cycle:.2} side {side:.2}) picked {};",
+            map.names[picked]
+        ),
     );
     for (n, score, focused) in cands.iter().take(3) {
-        s += &format!(
-            " {} {score:.2}{}",
-            map.names[*n],
-            if *focused { " 同线" } else { " 异线" }
+        s += &lang.pick_owned(
+            format!(
+                " {} {score:.2}{}",
+                map.names[*n],
+                if *focused { " 同线" } else { " 异线" }
+            ),
+            format!(
+                " {} {score:.2}{}",
+                map.names[*n],
+                if *focused { " same line" } else { " other line" }
+            ),
         );
     }
     s
@@ -834,7 +935,7 @@ fn event_loop(
             let area = f.area();
             ui::render(f.buffer_mut(), area, map, scene_of(view, real, schematic), view);
             if let Some((cands, at, next)) = choice.as_ref() {
-                ui::render_choice(f.buffer_mut(), area, map, cands, *at, *next);
+                ui::render_choice(f.buffer_mut(), area, map, cands, *at, *next, view.lang);
             }
         })?;
         let wait = if moving {
@@ -866,9 +967,15 @@ fn event_loop(
                         view.center = Some(ui::pan_center(&lay.proj, from, dc, dr));
                         view.target = None;
                         view.note = Some(if shift {
-                            format!("平移 {step} 列")
+                            match view.lang {
+                                Lang::Zh => format!("平移 {step} 列"),
+                                Lang::En => format!("pan {step} columns"),
+                            }
                         } else {
-                            format!("平移 {step} 行")
+                            match view.lang {
+                                Lang::Zh => format!("平移 {step} 行"),
+                                Lang::En => format!("pan {step} rows"),
+                            }
                         });
                     }
                 }
@@ -1149,7 +1256,7 @@ fn event_loop(
                 }
                 if why.is_empty() {
                     let cyc = view.cycle.unwrap_or(if view.focus.is_empty() { 0.0 } else { 2.0 });
-                    why = explain_dir(map, dir, next, &cands, cyc, view.side);
+                    why = explain_dir(map, dir, next, &cands, cyc, view.side, view.lang);
                 }
                 view.cursor = next;
             }
@@ -1165,11 +1272,11 @@ fn event_loop(
                 1 => {
                     note_here(view);
                     view.cursor = cands[0].0;
-                    view.note = Some(format!(
-                        "{} 沿线{}:{}",
-                        if next { "J/L" } else { "H/K" },
-                        if next { "下一站" } else { "上一站" },
-                        map.names[view.cursor]
+                    let (key, to) = if next { ("J/L", "next") } else { ("H/K", "previous") };
+                    let name = &map.names[view.cursor];
+                    view.note = Some(view.lang.pick_owned(
+                        format!("{key} 沿线{}:{name}", if next { "下一站" } else { "上一站" }),
+                        format!("{key} along the line to the {to} station: {name}"),
                     ));
                     let sc = scene_of(view, real, schematic);
                     follow_cursor(view, map, sc);
@@ -1484,6 +1591,59 @@ mod tests {
         assert_eq!(city::by_slug("shanghai").unwrap().name, "上海");
         assert!(city::by_slug("beijing").is_err());
         assert_eq!(city::CITIES.len(), 4);
+    }
+
+    /// --lang 只管应用界面:默认中文,认 zh/en 这些写法,写错要英文报错;:lang 不带参数就切换
+    #[test]
+    fn 界面语言参数() {
+        let p = |v: &[&str]| parse_args(&v.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        assert_eq!(p(&["--lang", "en"]).unwrap().lang, Lang::En);
+        assert_eq!(p(&["--lang", "zh"]).unwrap().lang, Lang::Zh);
+        assert_eq!(p(&[]).unwrap().lang, Lang::Zh, "默认该是中文");
+        for good in ["zh", "ZH", "cn", "chinese", "en", "English"] {
+            assert!(Lang::parse(good).is_some(), "{good} 该认得");
+        }
+        assert!(Lang::parse("fr").is_none(), "不认识的语言该返回 None");
+        let e = match p(&["--lang", "fr"]) {
+            Err(e) => e,
+            Ok(_) => panic!("fr 该被拒绝"),
+        };
+        assert!(
+            e.is_ascii() && e.contains("unknown language"),
+            "语言写错该用英文报错: {e}"
+        );
+        // :lang 不带参数:两种语言之间切
+        let mut view = View::default();
+        cmd_apply(&mut view, "lang");
+        assert_eq!(view.lang, Lang::En, "不带参数该切到英文");
+        cmd_apply(&mut view, "lang");
+        assert_eq!(view.lang, Lang::Zh, "再切一次该回到中文");
+        cmd_apply(&mut view, "lang en");
+        assert_eq!(view.lang, Lang::En, "带参数该按参数切");
+    }
+
+    /// -v / --version 打开版本开关;命令行那套(帮助与报错)对外是英文
+    #[test]
+    fn 版本参数与英文帮助() {
+        for f in ["-v", "--version"] {
+            assert!(
+                parse_args(&[f.to_string()]).unwrap().version,
+                "{f} 该打开版本开关"
+            );
+        }
+        assert!(USAGE.is_ascii(), "帮助里不该有非 ASCII 字符");
+        assert!(USAGE.starts_with("metro-tui - "), "第一行该是程序名加一句说明");
+        for want in ["usage: metro-tui", "--version", "--help", "--dump", "--city", "--schematic"] {
+            assert!(USAGE.contains(want), "帮助里该有 {want}");
+        }
+        let err = |argv: &[&str]| match parse_args(&argv.iter().map(|s| s.to_string()).collect::<Vec<_>>()) {
+            Err(e) => e,
+            Ok(_) => panic!("{argv:?} 该被拒绝"),
+        };
+        let e = err(&["--nope"]);
+        assert!(e.is_ascii(), "未知参数的报错该是英文: {e}");
+        assert!(e.contains("unknown argument"), "报错要说清是未知参数: {e}");
+        assert!(err(&["--size"]).is_ascii(), "缺参数的报错该是英文");
     }
 
     #[test]

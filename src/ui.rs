@@ -21,6 +21,8 @@ pub enum Mode {
     Schematic,
 }
 
+use crate::lang::Lang;
+
 /// 一段平移动画:按**时长**缓动(和地图软件一个路子),不是"每帧走固定格数"
 #[derive(Clone, Copy)]
 pub struct Pan {
@@ -68,6 +70,9 @@ pub struct View {
     pub cmd: Option<String>,
     /// 底部提示(命令回显 / 方向选择的依据)
     pub note: Option<String>,
+    /// 界面语言:只影响应用自己的提示文字(状态栏、速查、选城市、":" 回显);
+    /// 命令行那套(-h 帮助与报错)固定英文,不跟着它走
+    pub lang: Lang,
 }
 
 impl Default for View {
@@ -92,6 +97,7 @@ impl Default for View {
             side: 2.0,
             cmd: None,
             note: None,
+            lang: Lang::default(),
         }
     }
 }
@@ -141,12 +147,12 @@ pub fn fit_scale(scene: &Scene, w: u16, h: u16) -> f64 {
 }
 
 /// 图例占的宽度(放不下就是 0)
-fn legend_width(map: &Map, area_w: u16) -> u16 {
+fn legend_width(map: &Map, area_w: u16, lang: Lang) -> u16 {
     let text = map
         .lines
         .iter()
         .map(|l| width(&l.label))
-        .chain(std::iter::once(width("换乘站 #")))
+        .chain(std::iter::once(width(lang.pick("换乘站 #", "interchange #"))))
         .max()
         .unwrap_or(0) as u16;
     let need = text + 8;
@@ -181,8 +187,8 @@ fn arrive_hor(a: (i32, i32), b: (i32, i32), c: (i32, i32)) -> Option<bool> {
 /// 压暗用的灰
 const DIM_COLOR: Color = Color::Rgb(66, 74, 96);
 
-/// 键位速查(docs/README 里那份的口头版)
-pub const HELP_KEYS: &[(&str, &str)] = &[
+/// 键位速查:中文
+pub const HELP_KEYS_ZH: &[(&str, &str)] = &[
     ("h j k l / 方向键", "往那个方向挑最近、最正的那一站(5l = 连挪 5 站)"),
     ("H J K L", "只走图上相邻的那一站(这条线的下一站)"),
     ("Ctrl-d / Ctrl-u", "半屏往下 / 往上跳一站(远距离旅行)"),
@@ -197,8 +203,35 @@ pub const HELP_KEYS: &[(&str, &str)] = &[
     ("r", "示意图 / 真实地理"),
     ("鼠标左键", "点哪站就跳到哪站"),
     ("q / esc", "回选城市界面"),
-    (":", "命令行(调试):cycle <倍数> 同线档位允许远多少,side <倍数> 横向偏斜算几倍距离"),
+    (":", "命令行(调试):cycle <倍数> 同线档位允许远多少,side <倍数> 横向偏斜算几倍距离,lang <zh|en> 界面语言"),
 ];
+
+/// 键位速查:英文
+pub const HELP_KEYS_EN: &[(&str, &str)] = &[
+    ("h j k l / arrows", "nearest station on screen in that direction (5l = move 5 stations)"),
+    ("H J K L", "one station along the line (previous / next)"),
+    ("Ctrl-d / Ctrl-u", "jump half a screen down / up (long trips)"),
+    ("Ctrl-o / Ctrl-i", "back to the previous / next station you jumped to"),
+    ("n / N", "next / previous search hit"),
+    ("/", "search name / pinyin / initials; a bare number focuses that line"),
+    ("V", "focus the line(s) through this station (again to clear)"),
+    ("f", "fit the focused line (or this station's line) to the screen"),
+    ("z / space", "centre this station"),
+    ("+ - / 0", "zoom in / out / reset"),
+    ("b", "toggle station labels"),
+    ("r", "schematic / geographic"),
+    ("mouse left", "click a station to jump to it"),
+    ("q / esc", "back to the city picker"),
+    (":", "command line: cycle <x> same-line tolerance, side <x> sideways weight, lang <zh|en>"),
+];
+
+/// 当前语言的键位表
+pub fn help_keys(lang: Lang) -> &'static [(&'static str, &'static str)] {
+    match lang {
+        Lang::Zh => HELP_KEYS_ZH,
+        Lang::En => HELP_KEYS_EN,
+    }
+}
 
 /// 当前那一站画成实心的,一眼就能认出"我在这儿"
 const GLYPH_STATION_CURSOR: char = '●';
@@ -758,9 +791,17 @@ pub fn render_choice(
     cands: &[(usize, usize)],
     at: usize,
     next: bool,
+    lang: Lang,
 ) {
-    let title = if next { "下一站走哪条线?" } else { "上一站走哪条线?" };
-    let hint = "数字 / j k 选,回车走,esc 取消";
+    let title = if next {
+        lang.pick("下一站走哪条线?", "which line to the next station?")
+    } else {
+        lang.pick("上一站走哪条线?", "which line to the previous station?")
+    };
+    let hint = lang.pick(
+        "数字 / j k 选,回车走,esc 取消",
+        "digits / j k to pick, Enter to go, Esc to cancel",
+    );
     let texts: Vec<String> = cands
         .iter()
         .enumerate()
@@ -837,7 +878,7 @@ pub fn layout(map: &Map, scene: &Scene, area: Rect, view: &View) -> Layout {
         width: area.width,
         height: area.height.saturating_sub(status),
     };
-    let legend_w = legend_width(map, body.width);
+    let legend_w = legend_width(map, body.width, view.lang);
     let map_area = Rect {
         width: body.width.saturating_sub(legend_w),
         ..body
@@ -895,8 +936,8 @@ pub fn fit_to(
 }
 
 /// 键位速查浮层
-pub fn render_help(buf: &mut Buffer, area: Rect, lines: &[(&str, &str)]) {
-    let title = "键位速查";
+pub fn render_help(buf: &mut Buffer, area: Rect, lines: &[(&str, &str)], lang: Lang) {
+    let title = lang.pick("键位速查", "key reference");
     let w = lines
         .iter()
         .map(|(k, v)| width(k) + width(v) + 4)
@@ -935,13 +976,18 @@ pub fn render_help(buf: &mut Buffer, area: Rect, lines: &[(&str, &str)]) {
         put_panel(x + 2, yy, k, bright);
         put_panel(x + 2 + width(k).max(6) as u16 + 2, yy, v, dim);
     }
-    put_panel(x + 2, y + h - 2, "任意键关掉", dim);
+    put_panel(
+        x + 2,
+        y + h - 2,
+        lang.pick("任意键关掉", "any key closes this"),
+        dim,
+    );
 }
 
 pub fn render(buf: &mut Buffer, area: Rect, map: &Map, scene: &Scene, view: &View) -> Layout {
     let lay = layout(map, scene, area, view);
     if view.help {
-        render_help(buf, area, HELP_KEYS);
+        render_help(buf, area, help_keys(view.lang), view.lang);
         return lay;
     }
     let map_area = lay.area;
@@ -1078,7 +1124,7 @@ pub fn render(buf: &mut Buffer, area: Rect, map: &Map, scene: &Scene, view: &Vie
         let lx = map_area.x + map_area.width + 2;
         let rows = map.lines.len() as u16 + 4;
         let ly = map_area.y + map_area.height.saturating_sub(rows) / 2;
-        put(buf, lx, ly, "线路", dark);
+        put(buf, lx, ly, view.lang.pick("线路", "lines"), dark);
         for (i, l) in map.lines.iter().enumerate() {
             let (r, g, b) = l.color;
             let lit = focus == 0 || (i < 64 && focus & (1 << i) != 0);
@@ -1095,12 +1141,12 @@ pub fn render(buf: &mut Buffer, area: Rect, map: &Map, scene: &Scene, view: &Vie
         } else {
             dark
         };
-        put(buf, lx, base, "○ 普通站", dark);
+        put(buf, lx, base, view.lang.pick("○ 普通站", "○ station"), dark);
         put(
             buf,
             lx,
             base + 1,
-            "◎ 换乘站",
+            view.lang.pick("◎ 换乘站", "◎ interchange"),
             Style::default()
                 .fg(Color::Rgb(246, 248, 252))
                 .add_modifier(Modifier::BOLD),
@@ -1112,36 +1158,39 @@ pub fn render(buf: &mut Buffer, area: Rect, map: &Map, scene: &Scene, view: &Vie
         let prompt = format!("/{q}");
         put(buf, area.x, status_y, &prompt, Style::default().fg(Color::Rgb(238, 226, 104)));
         let x = area.x + width(&prompt) as u16;
+        let l = view.lang;
         let what = if q.trim().is_empty() {
-            "站名 / 拼音 / 首字母(比如 wlgc),或线路号".to_string()
+            l.pick(
+                "站名 / 拼音 / 首字母(比如 wlgc),或线路号",
+                "station name / pinyin / initials (e.g. wlgc), or a line number",
+            )
+            .to_string()
         } else if q.trim().chars().all(|c| c.is_ascii_digit()) {
             let hit_lines = crate::search::lines(map, q.trim());
             if hit_lines.is_empty() {
-                "没有这条线".to_string()
+                l.pick("没有这条线", "no such line").to_string()
             } else {
-                format!(
-                    "聚焦 {}:{} 站",
-                    hit_lines
-                        .iter()
-                        .map(|l| map.lines[*l].label.as_str())
-                        .collect::<Vec<_>>()
-                        .join(" "),
-                    view.hits.len()
-                )
+                let labels = hit_lines
+                    .iter()
+                    .map(|x| map.lines[*x].label.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" ");
+                let n = view.hits.len();
+                l.pick_owned(format!("聚焦 {labels}:{n} 站"), format!("focus {labels}: {n} stations"))
             }
         } else if view.hits.is_empty() {
-            "没找到".to_string()
+            l.pick("没找到", "no match").to_string()
         } else {
             let cur = view.hits[view.hit_at.min(view.hits.len() - 1)];
-            format!(
-                "{} 处匹配:{}{}",
-                view.hits.len(),
-                map.names[cur],
-                if view.hits.len() > 1 { ",n 下一个" } else { "" }
+            let more = if view.hits.len() > 1 { l.pick(",n 下一个", ", n for next") } else { "" };
+            let (n, name) = (view.hits.len(), map.names[cur].as_str());
+            l.pick_owned(
+                format!("{n} 处匹配:{name}{more}"),
+                format!("{n} match(es): {name}{more}"),
             )
         };
         put(buf, x + 2, status_y, &what, dark);
-        let tip = "Enter 确定  Esc 取消";
+        let tip = l.pick("Enter 确定  Esc 取消", "Enter to confirm, Esc to cancel");
         let tw = width(tip) as u16;
         if area.width > tw + 4 {
             put(buf, area.x + area.width - tw, status_y, tip, dark);
@@ -1150,7 +1199,7 @@ pub fn render(buf: &mut Buffer, area: Rect, map: &Map, scene: &Scene, view: &Vie
     }
     let name = &map.names[view.cursor];
     let mut x = area.x;
-    x += draw(buf, x, status_y, "站点 ", dark);
+    x += draw(buf, x, status_y, view.lang.pick("站点 ", "station "), dark);
     x += draw(
         buf,
         x,
@@ -1180,16 +1229,28 @@ pub fn render(buf: &mut Buffer, area: Rect, map: &Map, scene: &Scene, view: &Vie
             .map(|l| map.lines[*l].label.as_str())
             .collect::<Vec<_>>()
             .join(" ");
-        x += draw(buf, x, status_y, &format!("  聚焦 {names}"), dark);
+        x += draw(
+            buf,
+            x,
+            status_y,
+            &view.lang.pick_owned(format!("  聚焦 {names}"), format!("  focus {names}")),
+            dark,
+        );
     }
     let hint = if let Some(buf) = &view.cmd {
         format!(":{buf}")
     } else if let Some(n) = &view.note {
         n.clone()
     } else {
-        format!(
-            "x{:.1}  hjkl 移动  +/- 缩放  空格 居中  0 复位  / 搜索  b 站名  r 模式  q 回选城市",
-            view.zoom
+        view.lang.pick_owned(
+            format!(
+                "x{:.1}  hjkl 移动  +/- 缩放  空格 居中  0 复位  / 搜索  b 站名  r 模式  q 回选城市",
+                view.zoom
+            ),
+            format!(
+                "x{:.1}  hjkl move  +/- zoom  space centre  0 reset  / search  b labels  r mode  q cities",
+                view.zoom
+            ),
         )
     };
     let hw = width(&hint) as u16;
@@ -1202,9 +1263,10 @@ pub fn render(buf: &mut Buffer, area: Rect, map: &Map, scene: &Scene, view: &Vie
         }
     }
     let joined = nbrs.join(" ");
-    let room = area.width.saturating_sub(hw + 4 + width("相邻 ") as u16) as usize;
+    let room =
+        area.width.saturating_sub(hw + 4 + width(view.lang.pick("相邻 ", "nearby ")) as u16) as usize;
     if !nbrs.is_empty() && room > 6 {
-        x += draw(buf, x, status_y, "  相邻 ", dark);
+        x += draw(buf, x, status_y, view.lang.pick("  相邻 ", "  nearby "), dark);
         draw(
             buf,
             x,
@@ -1285,9 +1347,16 @@ fn chooser_texts(rows: &[(&str, &str)], sel: usize) -> Vec<String> {
 }
 
 /// 鼠标点到第几行(考虑滚动:屏幕上第 k 行对应 rows 里的 first + k)
-pub fn chooser_row_at(area: Rect, rows: &[(&str, &str)], sel: usize, col: u16, row: u16) -> Option<usize> {
+pub fn chooser_row_at(
+    area: Rect,
+    rows: &[(&str, &str)],
+    sel: usize,
+    col: u16,
+    row: u16,
+    lang: Lang,
+) -> Option<usize> {
     let (first, count) = chooser_window(area, rows.len(), sel);
-    let rects = chooser_rects(area, rows, first, count);
+    let rects = chooser_rects(area, rows, first, count, lang);
     rects
         .iter()
         .position(|r| col >= r.x && col < r.x + r.width && row == r.y)
@@ -1295,12 +1364,12 @@ pub fn chooser_row_at(area: Rect, rows: &[(&str, &str)], sel: usize, col: u16, r
 }
 
 /// 屏幕上那几行的矩形
-fn chooser_rects(area: Rect, rows: &[(&str, &str)], _first: usize, count: usize) -> Vec<Rect> {
+fn chooser_rects(area: Rect, rows: &[(&str, &str)], _first: usize, count: usize, lang: Lang) -> Vec<Rect> {
     let texts = chooser_texts(rows, 0);
     let w = texts
         .iter()
         .map(|t| width(t))
-        .chain([width(CHOOSER_TITLE), width(CHOOSER_HINT)])
+        .chain([width(chooser_title(lang)), width(chooser_hint(lang))])
         .max()
         .unwrap_or(0) as u16;
     let h = count as u16 + 4;
@@ -1311,21 +1380,29 @@ fn chooser_rects(area: Rect, rows: &[(&str, &str)], _first: usize, count: usize)
         .collect()
 }
 
-pub const CHOOSER_TITLE: &str = "metro-tui - 选一个城市";
-pub const CHOOSER_HINT: &str = "j k / 方向键 选择,回车打开,q 退出";
+pub fn chooser_title(lang: Lang) -> &'static str {
+    lang.pick("metro-tui - 选一个城市", "metro-tui - pick a city")
+}
+
+pub fn chooser_hint(lang: Lang) -> &'static str {
+    lang.pick(
+        "j k / 方向键 选择,回车打开,q 退出",
+        "j k / arrows to pick, Enter to open, q to quit",
+    )
+}
 
 /// 启动时的选城市界面:居中一列,选中的那行亮起来,底下是操作提示.
 /// 城市多的时候以选中那行为中心滚动,上下各提示还有几个
-pub fn render_chooser(buf: &mut Buffer, area: Rect, rows: &[(&str, &str)], sel: usize) {
+pub fn render_chooser(buf: &mut Buffer, area: Rect, rows: &[(&str, &str)], sel: usize, lang: Lang) {
     let texts = chooser_texts(rows, sel);
     let (first, count) = chooser_window(area, rows.len(), sel);
-    let rects = chooser_rects(area, rows, first, count);
+    let rects = chooser_rects(area, rows, first, count, lang);
     let bright = Style::default()
         .fg(Color::Rgb(246, 248, 252))
         .add_modifier(Modifier::BOLD);
     let Some(top) = rects.first() else { return };
     let (x, y) = (top.x, top.y.saturating_sub(2));
-    put(buf, x, y, CHOOSER_TITLE, bright);
+    put(buf, x, y, chooser_title(lang), bright);
     for k in 0..count {
         let i = first + k;
         let style = if i == sel {
@@ -1337,7 +1414,11 @@ pub fn render_chooser(buf: &mut Buffer, area: Rect, rows: &[(&str, &str)], sel: 
     }
     let dim = Style::default().fg(DIM_COLOR);
     if first > 0 {
-        put(buf, x, y + 1, &format!("  ↑ 上面还有 {first} 个"), dim);
+        let more = lang.pick_owned(
+            format!("  ↑ 上面还有 {first} 个"),
+            format!("  ↑ {first} more above"),
+        );
+        put(buf, x, y + 1, &more, dim);
     }
     let last = rects.last().map(|r| r.y).unwrap_or(y);
     if first + count < rows.len() {
@@ -1345,11 +1426,14 @@ pub fn render_chooser(buf: &mut Buffer, area: Rect, rows: &[(&str, &str)], sel: 
             buf,
             x,
             last + 1,
-            &format!("  ↓ 下面还有 {} 个", rows.len() - first - count),
+            &lang.pick_owned(
+                format!("  ↓ 下面还有 {} 个", rows.len() - first - count),
+                format!("  ↓ {} more below", rows.len() - first - count),
+            ),
             dim,
         );
     }
-    put(buf, x, last + 2, CHOOSER_HINT, dim);
+    put(buf, x, last + 2, chooser_hint(lang), dim);
 }
 
 /// 启动时的选城市界面:居中一列,选中的那行亮起来,底下是操作提示
@@ -1537,7 +1621,7 @@ mod tests {
     fn 选城市界面列出所有城市() {
         let rows = [("杭州", "13 条线,262 站"), ("上海", "20 条线,508 站")];
         let mut buf = Buffer::empty(Rect::new(0, 0, 40, 12));
-        render_chooser(&mut buf, Rect::new(0, 0, 40, 12), &rows, 1);
+        render_chooser(&mut buf, Rect::new(0, 0, 40, 12), &rows, 1, Lang::Zh);
         // 中日韩字占两格,后一格是空的,拼的时候要跨过去
         let joined = (0..12)
             .map(|y| {
@@ -1611,13 +1695,17 @@ mod tests {
         // 一屏放得下时,屏幕上的第 k 行就是第 k 个城市
         let (first, count) = chooser_window(area, rows.len(), 0);
         assert_eq!((first, count), (0, 2));
-        let rects = chooser_rects(area, &rows, first, count);
+        let rects = chooser_rects(area, &rows, first, count, Lang::Zh);
         for (i, r) in rects.iter().enumerate() {
-            assert_eq!(chooser_row_at(area, &rows, 0, r.x + 2, r.y), Some(i));
+            assert_eq!(chooser_row_at(area, &rows, 0, r.x + 2, r.y, Lang::Zh), Some(i));
         }
-        assert_eq!(chooser_row_at(area, &rows, 0, 1, 1), None, "标题那行不算");
+        assert_eq!(chooser_row_at(area, &rows, 0, 1, 1, Lang::Zh), None, "标题那行不算");
         let last_y = rects.last().unwrap().y;
-        assert_eq!(chooser_row_at(area, &rows, 0, 2, last_y + 3), None, "提示那行不算");
+        assert_eq!(
+            chooser_row_at(area, &rows, 0, 2, last_y + 3, Lang::Zh),
+            None,
+            "提示那行不算"
+        );
     }
 
     /// 城市多了要能以选中那行为中心滚动
@@ -1681,7 +1769,7 @@ mod tests {
         let cands = vec![(at("龙翔桥"), l1), (at("武林门"), m.lines.iter().position(|l| l.label == "2号线").unwrap())];
         let area = Rect::new(0, 0, 60, 20);
         let mut buf = Buffer::empty(area);
-        render_choice(&mut buf, area, &m, &cands, 1, false);
+        render_choice(&mut buf, area, &m, &cands, 1, false, Lang::Zh);
         let text: String = (0..area.height)
             .map(|y| {
                 let mut line = String::new();
@@ -2043,6 +2131,42 @@ mod real_map {
         println!("居中前 {c0:?},居中后 {c:?},画面中心 ({cx}, {cy})");
         assert!((c.0 - cx).abs() <= 1 && (c.1 - cy).abs() <= 1, "该落在正中");
         assert!(c != c0, "换了个位置才对");
+    }
+
+    /// 界面语言:英文模式下,应用自己的提示文字(速查浮层、状态栏)里不该再留中文
+    #[test]
+    fn 英文界面不留中文() {
+        let m = Map::from_dot(include_str!("../docs/hangzhou-subway.dot")).unwrap();
+        let sc = Scene::real(&m);
+        let area = Rect::new(0, 0, 120, 30);
+        let non_ascii = |buf: &Buffer| -> usize {
+            buf.content()
+                .iter()
+                .filter(|c| c.symbol().chars().any(|ch| !ch.is_ascii()))
+                .count()
+        };
+        // 速查浮层整块都是应用自己的文字,直接看里面还有没有非 ASCII
+        for (lang, want) in [(Lang::Zh, true), (Lang::En, false)] {
+            let mut view = View::default();
+            view.lang = lang;
+            view.help = true;
+            let mut buf = Buffer::empty(area);
+            render(&mut buf, area, &m, &sc, &view);
+            let n = non_ascii(&buf);
+            println!("{lang:?} 速查浮层里的非 ASCII 格数: {n}");
+            assert_eq!(n > 0, want, "{lang:?} 的速查浮层语言不对");
+        }
+        // 状态栏:英文模式下最后一行该是英文提示(站名本身来自数据,不参与)
+        let mut view = View::default();
+        view.lang = Lang::En;
+        let mut buf = Buffer::empty(area);
+        render(&mut buf, area, &m, &sc, &view);
+        let last: String = (0..area.width)
+            .map(|x| buf[(x, area.height - 1)].symbol())
+            .collect();
+        println!("英文状态栏: {}", last.trim_end());
+        assert!(last.contains("hjkl move"), "英文状态栏该是英文: {last}");
+        assert!(!last.contains("移动"), "英文状态栏里不该有中文: {last}");
     }
 
     /// 平移必须是"整幅图一起走整数格":中心挪不到一格时,所有站要么原地不动,
