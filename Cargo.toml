@@ -1,6 +1,6 @@
 [package]
 name = "metro-tui"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 description = "terminal metro map: box-drawing characters, one true color per line, schematic and geographic views"
 
