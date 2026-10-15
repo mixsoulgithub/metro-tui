@@ -5,7 +5,7 @@
 # 装:
 #   conda install -c <频道> metro-tui      (micromamba install -c <频道> metro-tui)
 {% set version = "0.1.4" %}
-{% set sha = "52a55f902d99f7ca4dbfad415c6d2f90285a435f751fcf8adbb81ea5862ae859" %}
+{% set sha = "be58f4cfe38c947095ca980f29b099332e3b9a5600da9600d9c3c34a25368290" %}
 
 package:
   name: metro-tui
